@@ -11,6 +11,8 @@ import {
   type Question,
 } from "@/lib/quiz";
 import { getProgress, recordAnswer } from "@/lib/progress";
+import ErrorState from "@/components/ui/ErrorState";
+import SpeakButton from "@/components/ui/SpeakButton";
 
 type Screen = "setup" | "playing" | "result";
 type Status = "loading" | "error" | "ready";
@@ -27,6 +29,7 @@ interface Answered {
 
 export default function QuizPage() {
   const [status, setStatus] = useState<Status>("loading");
+  const [retryKey, setRetryKey] = useState(0);
   const [allWords, setAllWords] = useState<Word[]>([]);
   const [screen, setScreen] = useState<Screen>("setup");
 
@@ -37,6 +40,7 @@ export default function QuizPage() {
   const [direction, setDirection] = useState<DirectionSetting>("en-tr");
   const [countChoice, setCountChoice] = useState<CountChoice>(10);
   const [onlyUnknown, setOnlyUnknown] = useState(false);
+  const [updateSrs, setUpdateSrs] = useState(true);
 
   // playing state
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -46,6 +50,7 @@ export default function QuizPage() {
 
   useEffect(() => {
     let cancelled = false;
+    setStatus("loading");
     fetch("/data/words.json")
       .then((r) => {
         if (!r.ok) throw new Error();
@@ -61,7 +66,7 @@ export default function QuizPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [retryKey]);
 
   const pool = useMemo(() => {
     const known = new Set(getProgress().knownWords);
@@ -90,7 +95,7 @@ export default function QuizPage() {
       if (!current || pickedIndex !== null) return;
       const correct = optIdx === current.correctIndex;
       setPickedIndex(optIdx);
-      recordAnswer(current.wordId, correct);
+      recordAnswer(current.wordId, correct, undefined, updateSrs);
       setAnswered((a) => [...a, { question: current, pickedIndex: optIdx, correct }]);
     },
     [current, pickedIndex],
@@ -121,7 +126,7 @@ export default function QuizPage() {
 
   if (status === "loading") return <div className="text-slate-400">Yükleniyor…</div>;
   if (status === "error")
-    return <div className="text-red-400">Kelimeler yüklenemedi.</div>;
+    return <ErrorState onRetry={() => setRetryKey((k) => k + 1)} />;
 
   return (
     <div className="space-y-6">
@@ -145,6 +150,8 @@ export default function QuizPage() {
           setCountChoice={setCountChoice}
           onlyUnknown={onlyUnknown}
           setOnlyUnknown={setOnlyUnknown}
+          updateSrs={updateSrs}
+          setUpdateSrs={setUpdateSrs}
           pool={pool}
           onStart={startQuiz}
         />
@@ -184,6 +191,8 @@ function Setup(props: {
   setCountChoice: (c: CountChoice) => void;
   onlyUnknown: boolean;
   setOnlyUnknown: (b: boolean) => void;
+  updateSrs: boolean;
+  setUpdateSrs: (b: boolean) => void;
   pool: Word[];
   onStart: () => void;
 }) {
@@ -196,6 +205,8 @@ function Setup(props: {
     setCountChoice,
     onlyUnknown,
     setOnlyUnknown,
+    updateSrs,
+    setUpdateSrs,
     pool,
     onStart,
   } = props;
@@ -299,15 +310,16 @@ function Setup(props: {
         </div>
       </Field>
 
-      <label className="inline-flex items-center gap-2 text-sm text-slate-300 cursor-pointer select-none">
-        <input
-          type="checkbox"
-          checked={onlyUnknown}
-          onChange={(e) => setOnlyUnknown(e.target.checked)}
-          className="accent-emerald-500"
-        />
-        Sadece bilmediklerim
-      </label>
+      <div className="flex flex-wrap gap-4">
+        <label className="inline-flex items-center gap-2 text-sm text-slate-300 cursor-pointer select-none">
+          <input type="checkbox" checked={onlyUnknown} onChange={(e) => setOnlyUnknown(e.target.checked)} className="accent-emerald-500" />
+          Sadece bilmediklerim
+        </label>
+        <label className="inline-flex items-center gap-2 text-sm text-slate-300 cursor-pointer select-none">
+          <input type="checkbox" checked={updateSrs} onChange={(e) => setUpdateSrs(e.target.checked)} className="accent-emerald-500" />
+          Akıllı tekrarı güncelle
+        </label>
+      </div>
 
       <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-4 text-sm text-slate-400">
         Havuz: <span className="text-slate-200 font-medium">{pool.length}</span> kelime.
@@ -525,10 +537,11 @@ function Result({
                   key={i}
                   className="rounded-lg border border-slate-800 bg-slate-900/50 p-4 space-y-1.5"
                 >
-                  <div className="flex items-baseline gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-heading text-lg font-bold text-slate-100">
                       {w.word}
                     </span>
+                    <SpeakButton text={w.word} size="sm" />
                     <span className="text-sm text-emerald-400">
                       {w.meaningTr}
                     </span>

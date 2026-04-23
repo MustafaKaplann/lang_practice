@@ -12,6 +12,8 @@ import {
   pickDistractorWords,
 } from "@/lib/fill-blank";
 import { getProgress, recordAnswer } from "@/lib/progress";
+import ErrorState from "@/components/ui/ErrorState";
+import SpeakButton from "@/components/ui/SpeakButton";
 
 type Screen = "setup" | "playing" | "result";
 type Status = "loading" | "error" | "ready";
@@ -41,6 +43,7 @@ interface Answered {
 
 export default function FillBlankPage() {
   const [status, setStatus] = useState<Status>("loading");
+  const [retryKey, setRetryKey] = useState(0);
   const [allWords, setAllWords] = useState<Word[]>([]);
   const [screen, setScreen] = useState<Screen>("setup");
 
@@ -50,6 +53,7 @@ export default function FillBlankPage() {
   const [difficulty, setDifficulty] = useState<Difficulty>("easy");
   const [countChoice, setCountChoice] = useState<CountChoice>(10);
   const [onlyUnknown, setOnlyUnknown] = useState(false);
+  const [updateSrs, setUpdateSrs] = useState(true);
 
   const [questions, setQuestions] = useState<FBQuestion[]>([]);
   const [index, setIndex] = useState(0);
@@ -61,6 +65,7 @@ export default function FillBlankPage() {
 
   useEffect(() => {
     let cancelled = false;
+    setStatus("loading");
     fetch("/data/words.json")
       .then((r) => {
         if (!r.ok) throw new Error();
@@ -76,7 +81,7 @@ export default function FillBlankPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [retryKey]);
 
   const eligible = useMemo(
     () => allWords.filter((w) => w.exampleEn && w.exampleTr),
@@ -140,7 +145,7 @@ export default function FillBlankPage() {
     (correct: boolean, extras: Partial<Answered>) => {
       if (!current) return;
       const xp = correct ? (hintUsed ? 5 : 10) : 0;
-      recordAnswer(current.wordId, correct, xp);
+      recordAnswer(current.wordId, correct, xp, updateSrs);
       setAnswered((a) => [
         ...a,
         { q: current, correct, hintUsed, ...extras },
@@ -202,7 +207,7 @@ export default function FillBlankPage() {
 
   if (status === "loading") return <div className="text-slate-400">Yükleniyor…</div>;
   if (status === "error")
-    return <div className="text-red-400">Kelimeler yüklenemedi.</div>;
+    return <ErrorState onRetry={() => setRetryKey((k) => k + 1)} />;
 
   return (
     <div className="space-y-6">
@@ -226,6 +231,8 @@ export default function FillBlankPage() {
           setCountChoice={setCountChoice}
           onlyUnknown={onlyUnknown}
           setOnlyUnknown={setOnlyUnknown}
+          updateSrs={updateSrs}
+          setUpdateSrs={setUpdateSrs}
           pool={pool}
           onStart={startQuiz}
         />
@@ -272,6 +279,8 @@ function Setup(props: {
   setCountChoice: (c: CountChoice) => void;
   onlyUnknown: boolean;
   setOnlyUnknown: (b: boolean) => void;
+  updateSrs: boolean;
+  setUpdateSrs: (b: boolean) => void;
   pool: Word[];
   onStart: () => void;
 }) {
@@ -285,6 +294,8 @@ function Setup(props: {
     setCountChoice,
     onlyUnknown,
     setOnlyUnknown,
+    updateSrs,
+    setUpdateSrs,
     pool,
     onStart,
   } = props;
@@ -392,6 +403,10 @@ function Setup(props: {
           className="accent-emerald-500"
         />
         Sadece bilmediklerim
+      </label>
+      <label className="inline-flex items-center gap-2 text-sm text-slate-300 cursor-pointer select-none">
+        <input type="checkbox" checked={updateSrs} onChange={(e) => setUpdateSrs(e.target.checked)} className="accent-emerald-500" />
+        Akıllı tekrarı güncelle
       </label>
 
       <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-4 text-sm text-slate-400">
@@ -520,17 +535,24 @@ function Playing(props: {
           className="space-y-5"
         >
           <div className="rounded-2xl border border-slate-800 bg-slate-900 p-8">
-            <p className="text-lg sm:text-xl leading-relaxed text-slate-100">
-              {parts[0]}
-              <span className="inline-block mx-1 px-2 py-0.5 rounded border-b-2 border-emerald-400/60 text-emerald-300 font-mono">
-                {revealed && difficulty === "easy" && pickedIndex !== null
-                  ? current.options[pickedIndex]
-                  : revealed && difficulty === "hard"
-                    ? current.word
-                    : "_____"}
-              </span>
-              {parts[1]}
-            </p>
+            <div className="flex items-start gap-2">
+              <p className="text-lg sm:text-xl leading-relaxed text-slate-100 flex-1">
+                {parts[0]}
+                <span className="inline-block mx-1 px-2 py-0.5 rounded border-b-2 border-emerald-400/60 text-emerald-300 font-mono">
+                  {revealed && difficulty === "easy" && pickedIndex !== null
+                    ? current.options[pickedIndex]
+                    : revealed && difficulty === "hard"
+                      ? current.word
+                      : "_____"}
+                </span>
+                {parts[1]}
+              </p>
+              <SpeakButton
+                text={parts.join(current.word)}
+                size="sm"
+                className="shrink-0 mt-1"
+              />
+            </div>
 
             <div className="mt-5">
               {!hintUsed ? (

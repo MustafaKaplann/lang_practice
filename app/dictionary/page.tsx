@@ -11,11 +11,14 @@ import {
   Layers,
   Quote,
   Search,
+  SearchX,
   X,
 } from "lucide-react";
 import type { Word } from "@/lib/types";
 import { getProgress, markKnown, markUnknown } from "@/lib/progress";
+import ErrorState from "@/components/ui/ErrorState";
 import { highlightWord } from "@/lib/highlight";
+import SpeakButton from "@/components/ui/SpeakButton";
 
 type KnownFilter = "all" | "known" | "unknown";
 type Status = "loading" | "error" | "ready";
@@ -24,6 +27,7 @@ const SUBLISTS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
 export default function DictionaryPage() {
   const [status, setStatus] = useState<Status>("loading");
+  const [retryKey, setRetryKey] = useState(0);
   const [allWords, setAllWords] = useState<Word[]>([]);
 
   const [searchInput, setSearchInput] = useState("");
@@ -37,6 +41,7 @@ export default function DictionaryPage() {
 
   useEffect(() => {
     let cancelled = false;
+    setStatus("loading");
     fetch("/data/words.json")
       .then((r) => {
         if (!r.ok) throw new Error();
@@ -53,7 +58,7 @@ export default function DictionaryPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [retryKey]);
 
   // Debounce search
   useEffect(() => {
@@ -117,7 +122,7 @@ export default function DictionaryPage() {
 
   if (status === "loading") return <div className="text-slate-400">Yükleniyor…</div>;
   if (status === "error")
-    return <div className="text-red-400">Kelimeler yüklenemedi.</div>;
+    return <ErrorState onRetry={() => setRetryKey((k) => k + 1)} />;
 
   return (
     <div className="space-y-6">
@@ -291,13 +296,14 @@ function WordList({
   if (words.length === 0) {
     return (
       <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-8 text-center space-y-3">
-        <p className="text-slate-400">Eşleşen kelime yok.</p>
+        <SearchX className="h-10 w-10 text-slate-600 mx-auto" />
+        <p className="text-slate-400">Bu filtreyle kelime bulunamadı.</p>
         <button
           type="button"
           onClick={onReset}
           className="inline-flex items-center gap-1.5 text-sm text-emerald-400 hover:text-emerald-300"
         >
-          Filtreleri sıfırla
+          Filtreyi Sıfırla
         </button>
       </div>
     );
@@ -372,9 +378,12 @@ function WordDetail({
   return (
     <article className="rounded-xl border border-slate-800 bg-slate-900/40 p-6 space-y-5">
       <header className="space-y-2">
-        <h2 className="font-heading text-3xl sm:text-4xl font-bold text-slate-100">
-          {word.word}
-        </h2>
+        <div className="flex items-center gap-2">
+          <h2 className="font-heading text-3xl sm:text-4xl font-bold text-slate-100">
+            {word.word}
+          </h2>
+          <SpeakButton text={word.word} size="lg" />
+        </div>
         <div className="flex flex-wrap gap-2">
           {word.sublist !== undefined && (
             <span className="inline-flex items-center gap-1 text-xs bg-slate-800 text-slate-300 px-2 py-0.5 rounded">
@@ -409,23 +418,28 @@ function WordDetail({
 
       {word.exampleEn && (
         <section className="rounded-lg border border-slate-800 bg-slate-900/60 p-4 space-y-2">
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-start">
             <Quote className="h-4 w-4 text-slate-500 shrink-0 mt-1" />
-            <p className="italic text-slate-200">
-              {highlightWord(word.exampleEn, word.word).map((s, i) =>
-                s.highlight ? (
-                  <strong key={i} className="text-emerald-400 not-italic font-bold">
-                    {s.text}
-                  </strong>
-                ) : (
-                  <span key={i}>{s.text}</span>
-                ),
+            <div className="flex-1 space-y-1">
+              <div className="flex items-start gap-1.5">
+                <p className="italic text-slate-200 flex-1">
+                  {highlightWord(word.exampleEn, word.word).map((s, i) =>
+                    s.highlight ? (
+                      <strong key={i} className="text-emerald-400 not-italic font-bold">
+                        {s.text}
+                      </strong>
+                    ) : (
+                      <span key={i}>{s.text}</span>
+                    ),
+                  )}
+                </p>
+                <SpeakButton text={word.exampleEn} size="sm" className="shrink-0 mt-0.5" />
+              </div>
+              {word.exampleTr && (
+                <p className="text-sm italic text-slate-500">{word.exampleTr}</p>
               )}
-            </p>
+            </div>
           </div>
-          {word.exampleTr && (
-            <p className="text-sm italic text-slate-500 pl-6">{word.exampleTr}</p>
-          )}
         </section>
       )}
 

@@ -7,6 +7,7 @@ import { Clock, ChevronLeft, RotateCcw, Settings, Sparkles } from "lucide-react"
 import type { Word } from "@/lib/types";
 import { shuffle } from "@/lib/shuffle";
 import { getProgress, recordAnswer, addXP } from "@/lib/progress";
+import ErrorState from "@/components/ui/ErrorState";
 
 type Screen = "setup" | "playing" | "result";
 type Status = "loading" | "error" | "ready";
@@ -23,6 +24,7 @@ interface WrongFlash {
 
 export default function MatchingPage() {
   const [status, setStatus] = useState<Status>("loading");
+  const [retryKey, setRetryKey] = useState(0);
   const [allWords, setAllWords] = useState<Word[]>([]);
   const [screen, setScreen] = useState<Screen>("setup");
 
@@ -31,6 +33,7 @@ export default function MatchingPage() {
   );
   const [pairCount, setPairCount] = useState<PairCount>(6);
   const [onlyUnknown, setOnlyUnknown] = useState(false);
+  const [updateSrs, setUpdateSrs] = useState(true);
 
   const [pairs, setPairs] = useState<Word[]>([]);
   const [leftOrder, setLeftOrder] = useState<Word[]>([]);
@@ -46,6 +49,7 @@ export default function MatchingPage() {
 
   useEffect(() => {
     let cancelled = false;
+    setStatus("loading");
     fetch("/data/words.json")
       .then((r) => {
         if (!r.ok) throw new Error();
@@ -61,7 +65,7 @@ export default function MatchingPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [retryKey]);
 
   const pool = useMemo(() => {
     const known = new Set(getProgress().knownWords);
@@ -137,12 +141,12 @@ export default function MatchingPage() {
     if (selectedLeft === null) return;
     if (id === selectedLeft) {
       // correct
-      recordAnswer(id, true, 0);
+      recordAnswer(id, true, 0, updateSrs);
       setSolvedIds((prev) => new Set(prev).add(id));
       setSelectedLeft(null);
     } else {
       // wrong
-      recordAnswer(selectedLeft, false, 0);
+      recordAnswer(selectedLeft, false, 0, updateSrs);
       setErrors((e) => e + 1);
       const nonce = Date.now();
       setWrongFlash({ leftId: selectedLeft, rightId: id, nonce });
@@ -163,7 +167,7 @@ export default function MatchingPage() {
 
   if (status === "loading") return <div className="text-slate-400">Yükleniyor…</div>;
   if (status === "error")
-    return <div className="text-red-400">Kelimeler yüklenemedi.</div>;
+    return <ErrorState onRetry={() => setRetryKey((k) => k + 1)} />;
 
   return (
     <div className="space-y-6">
@@ -184,6 +188,8 @@ export default function MatchingPage() {
           setPairCount={setPairCount}
           onlyUnknown={onlyUnknown}
           setOnlyUnknown={setOnlyUnknown}
+          updateSrs={updateSrs}
+          setUpdateSrs={setUpdateSrs}
           pool={pool}
           onStart={start}
         />
@@ -225,6 +231,8 @@ function Setup(props: {
   setPairCount: (n: PairCount) => void;
   onlyUnknown: boolean;
   setOnlyUnknown: (b: boolean) => void;
+  updateSrs: boolean;
+  setUpdateSrs: (b: boolean) => void;
   pool: Word[];
   onStart: () => void;
 }) {
@@ -235,6 +243,8 @@ function Setup(props: {
     setPairCount,
     onlyUnknown,
     setOnlyUnknown,
+    updateSrs,
+    setUpdateSrs,
     pool,
     onStart,
   } = props;
@@ -308,6 +318,10 @@ function Setup(props: {
           className="accent-emerald-500"
         />
         Sadece bilmediklerim
+      </label>
+      <label className="inline-flex items-center gap-2 text-sm text-slate-300 cursor-pointer select-none">
+        <input type="checkbox" checked={updateSrs} onChange={(e) => setUpdateSrs(e.target.checked)} className="accent-emerald-500" />
+        Akıllı tekrarı güncelle
       </label>
 
       <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-4 text-sm text-slate-400">

@@ -2,11 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Check, X, RotateCcw, ChevronLeft } from "lucide-react";
+import { Check, X, RotateCcw, ChevronLeft, SearchX } from "lucide-react";
 import Link from "next/link";
 import type { Word } from "@/lib/types";
 import { shuffle } from "@/lib/shuffle";
 import { getProgress, markKnown, markUnknown, recordAnswer } from "@/lib/progress";
+import { speak, isSupported, cancel } from "@/lib/speech";
+import { getSettings } from "@/lib/settings";
+import ErrorState from "@/components/ui/ErrorState";
+import SpeakButton from "@/components/ui/SpeakButton";
 
 type SublistFilter = "all" | number;
 type Status = "loading" | "error" | "ready";
@@ -15,6 +19,7 @@ const SUBLISTS: SublistFilter[] = ["all", 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
 export default function FlashcardsPage() {
   const [status, setStatus] = useState<Status>("loading");
+  const [retryKey, setRetryKey] = useState(0);
   const [allWords, setAllWords] = useState<Word[]>([]);
   const [sublist, setSublist] = useState<SublistFilter>("all");
   const [onlyUnknown, setOnlyUnknown] = useState(false);
@@ -25,9 +30,11 @@ export default function FlashcardsPage() {
   const [flipped, setFlipped] = useState(false);
   const [session, setSession] = useState({ known: 0, unknown: 0 });
   const [done, setDone] = useState(false);
+  const [updateSrs, setUpdateSrs] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
+    setStatus("loading");
     fetch("/data/words.json")
       .then((r) => {
         if (!r.ok) throw new Error("fetch failed");
@@ -45,7 +52,7 @@ export default function FlashcardsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [retryKey]);
 
   const filtered = useMemo(() => {
     return allWords.filter((w) => {
@@ -83,7 +90,7 @@ export default function FlashcardsPage() {
           return next;
         });
       }
-      recordAnswer(current.id, correct);
+      recordAnswer(current.id, correct, undefined, updateSrs);
       setSession((s) => ({
         known: s.known + (correct ? 1 : 0),
         unknown: s.unknown + (correct ? 0 : 1),
@@ -97,6 +104,18 @@ export default function FlashcardsPage() {
     },
     [current, done, index, deck.length],
   );
+
+  // Cancel speech on unmount
+  useEffect(() => () => { cancel(); }, []);
+
+  // AutoPlay: speak word when card is flipped to back
+  useEffect(() => {
+    if (!flipped || !current || !isSupported()) return;
+    const s = getSettings().speech;
+    if (s.enabled && s.autoPlayInGames) {
+      speak(current.word, { rate: s.rate, voice: s.voice ?? undefined });
+    }
+  }, [flipped, current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -118,11 +137,7 @@ export default function FlashcardsPage() {
     return <div className="text-slate-400">Yükleniyor…</div>;
   }
   if (status === "error") {
-    return (
-      <div className="text-red-400">
-        Kelimeler yüklenemedi. Sayfayı yenile.
-      </div>
-    );
+    return <ErrorState onRetry={() => setRetryKey((k) => k + 1)} />;
   }
 
   return (
@@ -146,6 +161,8 @@ export default function FlashcardsPage() {
         setSublist={setSublist}
         onlyUnknown={onlyUnknown}
         setOnlyUnknown={setOnlyUnknown}
+        updateSrs={updateSrs}
+        setUpdateSrs={setUpdateSrs}
       />
 
       {deck.length === 0 ? (
@@ -192,11 +209,15 @@ function Filters({
   setSublist,
   onlyUnknown,
   setOnlyUnknown,
+  updateSrs,
+  setUpdateSrs,
 }: {
   sublist: SublistFilter;
   setSublist: (s: SublistFilter) => void;
   onlyUnknown: boolean;
   setOnlyUnknown: (b: boolean) => void;
+  updateSrs: boolean;
+  setUpdateSrs: (b: boolean) => void;
 }) {
   return (
     <div className="space-y-3">
@@ -220,15 +241,16 @@ function Filters({
           );
         })}
       </div>
-      <label className="inline-flex items-center gap-2 text-sm text-slate-300 cursor-pointer select-none">
-        <input
-          type="checkbox"
-          checked={onlyUnknown}
-          onChange={(e) => setOnlyUnknown(e.target.checked)}
-          className="accent-emerald-500"
-        />
-        Sadece bilmediklerim
-      </label>
+      <div className="flex flex-wrap gap-4">
+        <label className="inline-flex items-center gap-2 text-sm text-slate-300 cursor-pointer select-none">
+          <input type="checkbox" checked={onlyUnknown} onChange={(e) => setOnlyUnknown(e.target.checked)} className="accent-emerald-500" />
+          Sadece bilmediklerim
+        </label>
+        <label className="inline-flex items-center gap-2 text-sm text-slate-300 cursor-pointer select-none">
+          <input type="checkbox" checked={updateSrs} onChange={(e) => setUpdateSrs(e.target.checked)} className="accent-emerald-500" />
+          Akıllı tekrarı güncelle
+        </label>
+      </div>
     </div>
   );
 }
@@ -268,8 +290,11 @@ function Flashcard({
           >
             <CardFace>
               <div className="text-center">
-                <div className="font-heading text-4xl sm:text-5xl font-bold text-slate-100">
-                  {word.word}
+                <div className="flex items-center justify-center gap-2">
+                  <div className="font-heading text-4xl sm:text-5xl font-bold text-slate-100">
+                    {word.word}
+                  </div>
+                  <SpeakButton text={word.word} size="md" />
                 </div>
                 {word.sublist && (
                   <div className="mt-3 text-xs uppercase tracking-wider text-slate-500">
@@ -283,6 +308,10 @@ function Flashcard({
             </CardFace>
             <CardFace back>
               <div className="w-full space-y-4 text-left">
+                <div className="flex items-center gap-2">
+                  <span className="font-heading text-lg font-bold text-slate-200">{word.word}</span>
+                  <SpeakButton text={word.word} size="sm" />
+                </div>
                 <div>
                   <div className="text-xs uppercase tracking-wider text-emerald-400 mb-1">
                     Türkçe
@@ -299,9 +328,12 @@ function Flashcard({
                 </div>
                 {word.exampleEn && (
                   <div className="pt-3 border-t border-slate-800 space-y-1">
-                    <p className="text-sm italic text-slate-300">
-                      &ldquo;{word.exampleEn}&rdquo;
-                    </p>
+                    <div className="flex items-start gap-1.5">
+                      <p className="text-sm italic text-slate-300 flex-1">
+                        &ldquo;{word.exampleEn}&rdquo;
+                      </p>
+                      <SpeakButton text={word.exampleEn} size="sm" className="shrink-0 mt-0.5" />
+                    </div>
                     {word.exampleTr && (
                       <p className="text-sm italic text-slate-500">
                         {word.exampleTr}
@@ -342,13 +374,14 @@ function CardFace({
 function EmptyState({ onReset }: { onReset: () => void }) {
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-10 text-center space-y-4">
-      <p className="text-slate-300">Bu filtreyle kart kalmadı.</p>
+      <SearchX className="h-10 w-10 text-slate-600 mx-auto" />
+      <p className="text-slate-400">Bu filtreyle eşleşen kart bulunamadı.</p>
       <button
         type="button"
         onClick={onReset}
         className="inline-flex items-center gap-2 rounded-lg bg-emerald-500/10 border border-emerald-500/40 text-emerald-300 px-4 py-2 text-sm hover:bg-emerald-500/20"
       >
-        <RotateCcw className="h-4 w-4" /> Filtreleri sıfırla
+        <RotateCcw className="h-4 w-4" /> Filtreyi Sıfırla
       </button>
     </div>
   );
