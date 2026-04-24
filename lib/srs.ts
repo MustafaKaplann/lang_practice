@@ -1,4 +1,4 @@
-import type { SRSCard, Word } from "./types";
+import type { SRSCard } from "./types";
 
 export type SRSQuality = 0 | 3 | 4 | 5;
 
@@ -12,7 +12,7 @@ export function addDays(dateStr: string, n: number): string {
   return d.toLocaleDateString("sv-SE");
 }
 
-export function getDefaultCard(wordId: number): SRSCard {
+export function getDefaultCard(wordId: string): SRSCard {
   return {
     wordId,
     easeFactor: 2.5,
@@ -51,9 +51,9 @@ export function reviewCard(card: SRSCard, quality: SRSQuality): SRSCard {
 }
 
 export function getDueCards(
-  srs: Record<number, SRSCard>,
+  srs: Record<string, SRSCard>,
   today: string,
-): number[] {
+): string[] {
   return Object.values(srs)
     .filter((c) => c.dueDate <= today)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
@@ -61,19 +61,19 @@ export function getDueCards(
 }
 
 export function getNewCards(
-  allWords: Word[],
-  srs: Record<number, SRSCard>,
+  pool: Array<{ uid: string; sublist?: number }>,
+  srs: Record<string, SRSCard>,
   limit: number,
-): number[] {
-  return allWords
-    .filter((w) => !srs[w.id])
+): string[] {
+  return pool
+    .filter((w) => !srs[w.uid])
     .sort((a, b) => (a.sublist ?? 99) - (b.sublist ?? 99))
     .slice(0, limit)
-    .map((w) => w.id);
+    .map((w) => w.uid);
 }
 
 export function getTomorrowDueCount(
-  srs: Record<number, SRSCard>,
+  srs: Record<string, SRSCard>,
   today: string,
 ): number {
   const tomorrow = addDays(today, 1);

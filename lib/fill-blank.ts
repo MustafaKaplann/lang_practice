@@ -1,4 +1,4 @@
-import type { Word } from "./types";
+import type { PoolWord } from "./types";
 import { shuffle } from "./shuffle";
 
 export const BLANK = "_____";
@@ -43,19 +43,23 @@ function escapeRegex(s: string): string {
 }
 
 export function pickDistractorWords(
-  word: Word,
-  pool: readonly Word[],
+  word: PoolWord,
+  pool: readonly PoolWord[],
   n: number,
-): Word[] {
-  const sameSub = pool.filter(
-    (w) => w.id !== word.id && w.sublist === word.sublist && w.word !== word.word,
+): PoolWord[] {
+  const sameGroup = pool.filter(
+    (w) => w.uid !== word.uid &&
+      (w.sublist === word.sublist || w.category === word.category) &&
+      w.word !== word.word,
   );
   const others = pool.filter(
-    (w) => w.id !== word.id && w.sublist !== word.sublist && w.word !== word.word,
+    (w) => w.uid !== word.uid &&
+      w.sublist !== word.sublist &&
+      w.word !== word.word,
   );
-  const picked: Word[] = [];
+  const picked: PoolWord[] = [];
   const used = new Set<string>([word.word]);
-  for (const c of [...shuffle(sameSub), ...shuffle(others)]) {
+  for (const c of [...shuffle(sameGroup), ...shuffle(others)]) {
     if (used.has(c.word)) continue;
     used.add(c.word);
     picked.push(c);

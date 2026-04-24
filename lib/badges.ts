@@ -13,9 +13,8 @@ export function getSublistProgress(
   words: Word[],
 ): SublistProgress {
   const sublistWords = words.filter((w) => w.sublist === sublistNum);
-  const known = sublistWords.filter((w) =>
-    progress.knownWords.includes(w.id),
-  ).length;
+  const knownSet = new Set(progress.knownWords);
+  const known = sublistWords.filter((w) => knownSet.has(String(w.id))).length;
   const total = sublistWords.length;
   const percent = total > 0 ? Math.round((known / total) * 100) : 0;
   const completed = total > 0 && known === total;

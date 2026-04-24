@@ -16,13 +16,35 @@ export function getDefaultProgress(): Progress {
   };
 }
 
+/** One-time migration: convert numeric IDs to string IDs */
+function migrateIds(p: Progress): boolean {
+  if (typeof window === "undefined") return false;
+  if (localStorage.getItem("srs-id-migrated") === "true") return false;
+
+  // knownWords/strugglingWords: [1, 2, 3] → ["1", "2", "3"]
+  p.knownWords = p.knownWords.map((id) => String(id));
+  p.strugglingWords = p.strugglingWords.map((id) => String(id));
+
+  // SRS card wordId values: number → string (keys are already strings in JSON)
+  for (const card of Object.values(p.srs)) {
+    if (typeof (card.wordId as unknown) === "number") {
+      card.wordId = String(card.wordId as unknown as number);
+    }
+  }
+
+  localStorage.setItem("srs-id-migrated", "true");
+  return true;
+}
+
 export function getProgress(): Progress {
   if (typeof window === "undefined") return getDefaultProgress();
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return getDefaultProgress();
     const parsed = JSON.parse(raw) as Partial<Progress>;
-    return { ...getDefaultProgress(), ...parsed };
+    const p: Progress = { ...getDefaultProgress(), ...parsed };
+    if (migrateIds(p)) saveProgress(p);
+    return p;
   } catch {
     return getDefaultProgress();
   }
@@ -41,7 +63,6 @@ export function saveProgress(progress: Progress): void {
 }
 
 function todayStr(): string {
-  // YYYY-MM-DD in local time
   return new Date().toLocaleDateString("sv");
 }
 
@@ -72,7 +93,7 @@ function updateStreak(p: Progress): void {
   showToast({ type: "info", message: `🔥 ${p.streak.current} günlük seri!` });
 }
 
-export function markKnown(id: number): Progress {
+export function markKnown(id: string): Progress {
   const p = getProgress();
   const before = p.knownWords.length;
   if (!p.knownWords.includes(id)) p.knownWords.push(id);
@@ -91,7 +112,7 @@ export function markKnown(id: number): Progress {
   return p;
 }
 
-export function markUnknown(id: number): Progress {
+export function markUnknown(id: string): Progress {
   const p = getProgress();
   p.knownWords = p.knownWords.filter((x) => x !== id);
   saveProgress(p);
@@ -106,7 +127,7 @@ export function addXP(amount: number): Progress {
 }
 
 export function recordAnswer(
-  id: number,
+  id: string,
   correct: boolean,
   xpGain?: number,
   updateSrs = true,

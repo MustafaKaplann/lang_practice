@@ -1,11 +1,11 @@
-import type { Word } from "./types";
+import type { PoolWord } from "./types";
 import { shuffle } from "./shuffle";
 
 export type Direction = "en-tr" | "tr-en";
 export type DirectionSetting = Direction | "mixed";
 
 export interface Question {
-  wordId: number;
+  wordId: string;       // was number
   direction: Direction;
   prompt: string;
   correct: string;
@@ -13,31 +13,36 @@ export interface Question {
   correctIndex: number;
 }
 
-function answerOf(w: Word, dir: Direction): string {
+function answerOf(w: PoolWord, dir: Direction): string {
   return dir === "en-tr" ? w.meaningTr : w.word;
 }
 
-function promptOf(w: Word, dir: Direction): string {
+function promptOf(w: PoolWord, dir: Direction): string {
   return dir === "en-tr" ? w.word : w.meaningTr;
 }
 
 export function generateQuestion(
-  word: Word,
-  pool: readonly Word[],
+  word: PoolWord,
+  pool: readonly PoolWord[],
   direction: Direction,
 ): Question {
   const correct = answerOf(word, direction);
 
-  const sameSublist = pool.filter(
-    (w) => w.id !== word.id && w.sublist === word.sublist && answerOf(w, direction) !== correct,
+  const sameGroup = pool.filter(
+    (w) => w.uid !== word.uid &&
+      (w.sublist === word.sublist || w.category === word.category) &&
+      answerOf(w, direction) !== correct,
   );
   const others = pool.filter(
-    (w) => w.id !== word.id && w.sublist !== word.sublist && answerOf(w, direction) !== correct,
+    (w) => w.uid !== word.uid &&
+      w.sublist !== word.sublist &&
+      w.category !== word.category &&
+      answerOf(w, direction) !== correct,
   );
 
-  const picked: Word[] = [];
+  const picked: PoolWord[] = [];
   const usedAnswers = new Set<string>([correct]);
-  for (const candidate of [...shuffle(sameSublist), ...shuffle(others)]) {
+  for (const candidate of [...shuffle(sameGroup), ...shuffle(others)]) {
     const a = answerOf(candidate, direction);
     if (usedAnswers.has(a)) continue;
     usedAnswers.add(a);
@@ -47,7 +52,7 @@ export function generateQuestion(
 
   const options = shuffle([correct, ...picked.map((p) => answerOf(p, direction))]);
   return {
-    wordId: word.id,
+    wordId: word.uid,
     direction,
     prompt: promptOf(word, direction),
     correct,
@@ -62,7 +67,7 @@ export function resolveDirection(setting: DirectionSetting): Direction {
 }
 
 export function buildQuiz(
-  pool: readonly Word[],
+  pool: readonly PoolWord[],
   count: number,
   setting: DirectionSetting,
 ): Question[] {

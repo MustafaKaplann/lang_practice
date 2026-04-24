@@ -8,14 +8,14 @@ function seedSrsData(count: number): void {
   for (let i = 1; i <= Math.min(count, 570); i++) {
     const daysOffset = Math.floor(Math.random() * 14) - 3;
     const card: SRSCard = {
-      ...getDefaultCard(i),
+      ...getDefaultCard(String(i)),
       easeFactor: 1.3 + Math.random() * 1.7,
       interval: Math.max(1, Math.floor(Math.random() * 20)),
       repetitions: Math.floor(Math.random() * 5),
       dueDate: addDays(today, daysOffset),
       lapses: Math.floor(Math.random() * 3),
     };
-    p.srs[i] = card;
+    p.srs[String(i)] = card;
   }
   saveProgress(p);
   console.log(`[SRS Dev] Seeded ${count} cards`);
@@ -31,7 +31,7 @@ function resetSrs(): void {
   console.log("[SRS Dev] SRS data reset");
 }
 
-function dumpSrs(): Record<number, SRSCard> {
+function dumpSrs(): Record<string, SRSCard> {
   return getProgress().srs;
 }
 

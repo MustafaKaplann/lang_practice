@@ -17,7 +17,7 @@ type ListeningMode = "word" | "sentence";
 type CountChoice = 10 | 20 | 50;
 
 interface ListeningQ {
-  wordId: number;
+  wordId: string;
   word: string;
   speakText: string;
   meaningTr: string;
@@ -32,7 +32,7 @@ const COUNTS: CountChoice[] = [10, 20, 50];
 function buildQuestions(pool: Word[], mode: ListeningMode, count: number): ListeningQ[] {
   const eligible = mode === "sentence" ? pool.filter((w) => !!w.exampleEn) : pool;
   return shuffle(eligible).slice(0, Math.min(count, eligible.length)).map((w) => ({
-    wordId: w.id,
+    wordId: String(w.id),
     word: w.word,
     speakText: mode === "sentence" ? (w.exampleEn ?? w.word) : w.word,
     meaningTr: w.meaningTr,

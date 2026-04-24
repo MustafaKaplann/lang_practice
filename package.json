@@ -10,11 +10,12 @@
     "build-words": "tsx scripts/build-words.ts"
   },
   "dependencies": {
+    "@upstash/redis": "^1.37.0",
+    "framer-motion": "^11.11.0",
+    "lucide-react": "^0.460.0",
     "next": "^15.0.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "framer-motion": "^11.11.0",
-    "lucide-react": "^0.460.0"
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

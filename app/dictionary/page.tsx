@@ -37,7 +37,7 @@ export default function DictionaryPage() {
   );
   const [knownFilter, setKnownFilter] = useState<KnownFilter>("all");
   const [selectedWordId, setSelectedWordId] = useState<number | null>(null);
-  const [knownIds, setKnownIds] = useState<Set<number>>(new Set());
+  const [knownIds, setKnownIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let cancelled = false;
@@ -50,7 +50,7 @@ export default function DictionaryPage() {
       .then((d) => {
         if (!cancelled) {
           setAllWords(d);
-          setKnownIds(new Set(getProgress().knownWords));
+          setKnownIds(new Set<string>(getProgress().knownWords));
           setStatus("ready");
         }
       })
@@ -70,8 +70,8 @@ export default function DictionaryPage() {
     return allWords.filter((w) => {
       if (w.sublist !== undefined && !selectedSublists.has(w.sublist)) return false;
       if (w.sublist === undefined && selectedSublists.size !== SUBLISTS.length) return false;
-      if (knownFilter === "known" && !knownIds.has(w.id)) return false;
-      if (knownFilter === "unknown" && knownIds.has(w.id)) return false;
+      if (knownFilter === "known" && !knownIds.has(String(w.id))) return false;
+      if (knownFilter === "unknown" && knownIds.has(String(w.id))) return false;
       if (searchQuery) {
         const hay = `${w.word} ${w.meaningTr}`.toLowerCase();
         if (!hay.includes(searchQuery)) return false;
@@ -99,16 +99,17 @@ export default function DictionaryPage() {
 
   const toggleKnown = useCallback(
     (id: number) => {
-      if (knownIds.has(id)) {
-        markUnknown(id);
+      const uid = String(id);
+      if (knownIds.has(uid)) {
+        markUnknown(uid);
         setKnownIds((prev) => {
           const next = new Set(prev);
-          next.delete(id);
+          next.delete(uid);
           return next;
         });
       } else {
-        markKnown(id);
-        setKnownIds((prev) => new Set(prev).add(id));
+        markKnown(uid);
+        setKnownIds((prev) => new Set(prev).add(uid));
       }
     },
     [knownIds],
@@ -166,7 +167,7 @@ export default function DictionaryPage() {
             {selectedWord ? (
               <WordDetail
                 word={selectedWord}
-                known={knownIds.has(selectedWord.id)}
+                known={knownIds.has(String(selectedWord.id))}
                 onToggleKnown={() => toggleKnown(selectedWord.id)}
               />
             ) : (
@@ -182,7 +183,7 @@ export default function DictionaryPage() {
           <MobileSheet
             key="sheet"
             word={selectedWord}
-            known={knownIds.has(selectedWord.id)}
+            known={knownIds.has(String(selectedWord.id))}
             onToggleKnown={() => toggleKnown(selectedWord.id)}
             onClose={() => setSelectedWordId(null)}
           />
@@ -288,7 +289,7 @@ function WordList({
   onReset,
 }: {
   words: Word[];
-  knownIds: Set<number>;
+  knownIds: Set<string>;
   selectedId: number | null;
   onSelect: (id: number) => void;
   onReset: () => void;
@@ -313,7 +314,7 @@ function WordList({
       <ul className="divide-y divide-slate-800/60">
         {words.map((w) => {
           const isSelected = selectedId === w.id;
-          const isKnown = knownIds.has(w.id);
+          const isKnown = knownIds.has(String(w.id));
           return (
             <li key={w.id}>
               <button

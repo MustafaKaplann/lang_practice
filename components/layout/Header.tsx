@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Flame, BookOpen, Keyboard, Settings } from "lucide-react";
+import { Flame, BookOpen, Keyboard, Settings, ShieldCheck } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { getProgress } from "@/lib/progress";
@@ -11,6 +11,7 @@ import KeyboardModal from "@/components/ui/KeyboardModal";
 export default function Header() {
   const [streak, setStreak] = useState(0);
   const [kbOpen, setKbOpen] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     setStreak(getProgress().streak.current);
@@ -21,6 +22,10 @@ export default function Header() {
     }
     window.addEventListener("awl-progress-updated", onUpdate);
     return () => window.removeEventListener("awl-progress-updated", onUpdate);
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/admin/me").then((r) => setIsAdmin(r.ok)).catch(() => {});
   }, []);
 
   const openKb = useCallback(() => setKbOpen(true), []);
@@ -97,6 +102,16 @@ export default function Header() {
             >
               <Settings className="h-4 w-4" />
             </Link>
+            {isAdmin && (
+              <Link
+                href="/admin"
+                aria-label="Admin Paneli"
+                title="Admin Paneli"
+                className="text-violet-400 hover:text-violet-300 transition-colors"
+              >
+                <ShieldCheck className="h-4 w-4" />
+              </Link>
+            )}
           </nav>
         </div>
       </header>

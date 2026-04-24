@@ -5,6 +5,22 @@ export interface Segment {
   highlight: boolean;
 }
 
+export function highlightAWLWords(text: string, awlWordSet: Set<string>): Segment[] {
+  if (awlWordSet.size === 0) return [{ text, highlight: false }];
+  const tokens = text.split(/(\b\w+\b)/);
+  const segments: Segment[] = [];
+  for (const token of tokens) {
+    if (token === "") continue;
+    const isAWL = awlWordSet.has(token.toLowerCase());
+    if (segments.length > 0 && segments[segments.length - 1].highlight === isAWL) {
+      segments[segments.length - 1].text += token;
+    } else {
+      segments.push({ text: token, highlight: isAWL });
+    }
+  }
+  return segments;
+}
+
 export function highlightWord(sentence: string, word: string): Segment[] {
   const variants = wordVariants(word);
   const pattern = variants.map(escapeRegex).join("|");

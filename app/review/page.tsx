@@ -4,19 +4,20 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
 import { Brain, ChevronLeft, RotateCcw, Calendar } from "lucide-react";
-import type { Progress, SRSCard, Word } from "@/lib/types";
+import type { Progress, PoolWord, SRSCard } from "@/lib/types";
 import { getDefaultProgress, getProgress, saveProgress } from "@/lib/progress";
 import {
   getDueCards, getNewCards, getDefaultCard, reviewCard,
   getTomorrowDueCount, todayLocal, addDays, type SRSQuality,
 } from "@/lib/srs";
+import { getWordPool } from "@/lib/wordPool";
 import { speak, isSupported, cancel } from "@/lib/speech";
 import { getSettings } from "@/lib/settings";
 import ErrorState from "@/components/ui/ErrorState";
 import SpeakButton from "@/components/ui/SpeakButton";
 
 type Phase = "intro" | "reviewing" | "done";
-interface QItem { wordId: number; isNew: boolean }
+interface QItem { wordId: string; isNew: boolean }
 
 const DAILY_LIMITS = [5, 10, 15, 20, 30];
 
@@ -47,7 +48,7 @@ function migrate(p: Progress): boolean {
 export default function ReviewPage() {
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
   const [retryKey, setRetryKey] = useState(0);
-  const [words, setWords] = useState<Word[]>([]);
+  const [pool, setPool] = useState<PoolWord[]>([]);
   const [progress, setProgress] = useState<Progress>(getDefaultProgress);
   const [phase, setPhase] = useState<Phase>("intro");
   const [dailyLimit, setDailyLimit] = useState(10);
@@ -59,11 +60,10 @@ export default function ReviewPage() {
   useEffect(() => {
     setStatus("loading");
     let cancelled = false;
-    fetch("/data/words.json")
-      .then((r) => { if (!r.ok) throw new Error(); return r.json() as Promise<Word[]>; })
-      .then((w) => {
+    getWordPool("all")
+      .then((words) => {
         if (cancelled) return;
-        setWords(w);
+        setPool(words);
         const p = getProgress();
         if (migrate(p)) saveProgress(p);
         setProgress(p);
@@ -77,9 +77,12 @@ export default function ReviewPage() {
   }, [retryKey]);
 
   const today = todayLocal();
-  const wordMap = useMemo(() => new Map(words.map((w) => [w.id, w])), [words]);
+  const wordMap = useMemo(() => new Map(pool.map((w) => [w.uid, w])), [pool]);
   const dueIds = useMemo(() => getDueCards(progress.srs, today), [progress.srs, today]);
-  const newIds = useMemo(() => getNewCards(words, progress.srs, dailyLimit), [words, progress.srs, dailyLimit]);
+  const newIds = useMemo(
+    () => getNewCards(pool.map((w) => ({ uid: w.uid, sublist: w.sublist })), progress.srs, dailyLimit),
+    [pool, progress.srs, dailyLimit],
+  );
 
   function startSession() {
     const q: QItem[] = [
@@ -110,13 +113,11 @@ export default function ReviewPage() {
     if (nextIdx >= (willAddBack ? queue.length + 1 : queue.length)) setPhase("done");
   }, [queue, qIdx]);
 
-  // Cancel speech on unmount
   useEffect(() => () => { cancel(); }, []);
 
-  // AutoPlay: speak word when card is shown
   useEffect(() => {
     if (!shown || !isSupported()) return;
-    const w = wordMap.get(queue[qIdx]?.wordId ?? -1);
+    const w = wordMap.get(queue[qIdx]?.wordId ?? "");
     if (!w) return;
     const s = getSettings().speech;
     if (s.enabled && s.autoPlayInGames) {
@@ -140,7 +141,7 @@ export default function ReviewPage() {
   if (status === "loading") return <div className="text-slate-400">Yükleniyor…</div>;
   if (status === "error") return <ErrorState onRetry={() => setRetryKey((k) => k + 1)} />;
 
-  const currentWord = phase === "reviewing" ? wordMap.get(queue[qIdx]?.wordId ?? -1) : undefined;
+  const currentWord = phase === "reviewing" ? wordMap.get(queue[qIdx]?.wordId ?? "") : undefined;
   const currentCard = phase === "reviewing" && queue[qIdx]
     ? (progress.srs[queue[qIdx].wordId] ?? getDefaultCard(queue[qIdx].wordId))
     : null;
@@ -209,7 +210,7 @@ export default function ReviewPage() {
 function IntroScreen({ dueCount, newCount, dailyLimit, setDailyLimit, onStart, progress, wordMap, today }: {
   dueCount: number; newCount: number; dailyLimit: number;
   setDailyLimit: (n: number) => void; onStart: () => void;
-  progress: Progress; wordMap: Map<number, Word>; today: string;
+  progress: Progress; wordMap: Map<string, PoolWord>; today: string;
 }) {
   const total = dueCount + newCount;
   const srsCards = Object.values(progress.srs);
@@ -301,10 +302,10 @@ function IntroScreen({ dueCount, newCount, dailyLimit, setDailyLimit, onStart, p
   );
 }
 
-function ReviewCard({ word, shown, onShow }: { word: Word; shown: boolean; onShow: () => void }) {
+function ReviewCard({ word, shown, onShow }: { word: PoolWord; shown: boolean; onShow: () => void }) {
   return (
     <AnimatePresence mode="wait">
-      <motion.div key={word.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+      <motion.div key={word.uid} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}
         className="rounded-2xl border border-slate-800 bg-slate-900 p-8 min-h-[200px] flex flex-col items-center justify-center text-center space-y-4">
         <div className="flex items-center justify-center gap-2">
@@ -312,6 +313,7 @@ function ReviewCard({ word, shown, onShow }: { word: Word; shown: boolean; onSho
           <SpeakButton text={word.word} size="md" />
         </div>
         {word.sublist && <div className="text-xs uppercase tracking-wider text-slate-500">Sublist {word.sublist}</div>}
+        {word.category && <div className="text-xs uppercase tracking-wider text-violet-400">{word.category}</div>}
         {!shown ? (
           <button type="button" onClick={onShow}
             className="mt-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-300 px-5 py-2 text-sm hover:bg-slate-700">
@@ -323,10 +325,12 @@ function ReviewCard({ word, shown, onShow }: { word: Word; shown: boolean; onSho
               <div className="text-xs uppercase tracking-wider text-emerald-400 mb-0.5">Türkçe</div>
               <div className="text-lg font-medium text-slate-100">{word.meaningTr}</div>
             </div>
-            <div>
-              <div className="text-xs uppercase tracking-wider text-slate-500 mb-0.5">English</div>
-              <div className="text-sm text-slate-400">{word.meaningEn}</div>
-            </div>
+            {word.meaningEn && (
+              <div>
+                <div className="text-xs uppercase tracking-wider text-slate-500 mb-0.5">English</div>
+                <div className="text-sm text-slate-400">{word.meaningEn}</div>
+              </div>
+            )}
             {word.exampleEn && (
               <div className="pt-2 border-t border-slate-800 space-y-1">
                 <div className="flex items-start gap-1.5">

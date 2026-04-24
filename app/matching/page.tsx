@@ -4,10 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { Clock, ChevronLeft, RotateCcw, Settings, Sparkles } from "lucide-react";
-import type { Word } from "@/lib/types";
+import type { PoolWord } from "@/lib/types";
 import { shuffle } from "@/lib/shuffle";
 import { getProgress, recordAnswer, addXP } from "@/lib/progress";
+import { getWordPool, getCustomCategories, type WordPoolCategory } from "@/lib/wordPool";
 import ErrorState from "@/components/ui/ErrorState";
+import CategoryFilter from "@/components/games/CategoryFilter";
 
 type Screen = "setup" | "playing" | "result";
 type Status = "loading" | "error" | "ready";
@@ -17,29 +19,29 @@ const SUBLISTS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 const PAIR_CHOICES: PairCount[] = [6, 8, 10];
 
 interface WrongFlash {
-  leftId: number;
-  rightId: number;
+  leftId: string;
+  rightId: string;
   nonce: number;
 }
 
 export default function MatchingPage() {
   const [status, setStatus] = useState<Status>("loading");
   const [retryKey, setRetryKey] = useState(0);
-  const [allWords, setAllWords] = useState<Word[]>([]);
+  const [allWords, setAllWords] = useState<PoolWord[]>([]);
+  const [customCategories, setCustomCategories] = useState<string[]>([]);
+  const [category, setCategory] = useState<WordPoolCategory>("awl");
   const [screen, setScreen] = useState<Screen>("setup");
 
-  const [selectedSublists, setSelectedSublists] = useState<Set<number>>(
-    new Set(SUBLISTS),
-  );
+  const [selectedSublists, setSelectedSublists] = useState<Set<number>>(new Set(SUBLISTS));
   const [pairCount, setPairCount] = useState<PairCount>(6);
   const [onlyUnknown, setOnlyUnknown] = useState(false);
   const [updateSrs, setUpdateSrs] = useState(true);
 
-  const [pairs, setPairs] = useState<Word[]>([]);
-  const [leftOrder, setLeftOrder] = useState<Word[]>([]);
-  const [rightOrder, setRightOrder] = useState<Word[]>([]);
-  const [solvedIds, setSolvedIds] = useState<Set<number>>(new Set());
-  const [selectedLeft, setSelectedLeft] = useState<number | null>(null);
+  const [pairs, setPairs] = useState<PoolWord[]>([]);
+  const [leftOrder, setLeftOrder] = useState<PoolWord[]>([]);
+  const [rightOrder, setRightOrder] = useState<PoolWord[]>([]);
+  const [solvedIds, setSolvedIds] = useState<Set<string>>(new Set());
+  const [selectedLeft, setSelectedLeft] = useState<string | null>(null);
   const [wrongFlash, setWrongFlash] = useState<WrongFlash | null>(null);
   const [errors, setErrors] = useState(0);
 
@@ -50,47 +52,41 @@ export default function MatchingPage() {
   useEffect(() => {
     let cancelled = false;
     setStatus("loading");
-    fetch("/data/words.json")
-      .then((r) => {
-        if (!r.ok) throw new Error();
-        return r.json() as Promise<Word[]>;
+    Promise.all([getWordPool(category), getCustomCategories()])
+      .then(([words, cats]) => {
+        if (cancelled) return;
+        setAllWords(words);
+        setCustomCategories(cats);
+        setStatus("ready");
       })
-      .then((d) => {
-        if (!cancelled) {
-          setAllWords(d);
-          setStatus("ready");
-        }
-      })
-      .catch(() => !cancelled && setStatus("error"));
-    return () => {
-      cancelled = true;
-    };
-  }, [retryKey]);
+      .catch(() => { if (!cancelled) setStatus("error"); });
+    return () => { cancelled = true; };
+  }, [retryKey, category]);
+
+  const isCustomPool = category !== "awl";
 
   const pool = useMemo(() => {
     const known = new Set(getProgress().knownWords);
     const filtered = allWords.filter((w) => {
-      if (w.sublist === undefined) return false;
-      if (!selectedSublists.has(w.sublist)) return false;
+      if (!isCustomPool && w.sublist !== undefined && !selectedSublists.has(w.sublist)) return false;
       if (!w.meaningTr) return false;
-      if (onlyUnknown && known.has(w.id)) return false;
+      if (onlyUnknown && known.has(w.uid)) return false;
       return true;
     });
-    // Dedupe by meaningTr to avoid visual ambiguity in the grid.
-    const byMeaning = new Map<string, Word>();
+    // Dedupe by meaningTr to avoid visual ambiguity in the grid
+    const byMeaning = new Map<string, PoolWord>();
     for (const w of filtered) {
       if (!byMeaning.has(w.meaningTr)) byMeaning.set(w.meaningTr, w);
     }
     return Array.from(byMeaning.values());
-  }, [allWords, selectedSublists, onlyUnknown]);
+  }, [allWords, selectedSublists, onlyUnknown, isCustomPool]);
 
   const start = useCallback(() => {
     const picked = shuffle(pool).slice(0, pairCount);
     setPairs(picked);
     let left = shuffle(picked);
     let right = shuffle(picked);
-    // Ensure columns differ if possible
-    if (picked.length > 1 && left.every((w, i) => w.id === right[i].id)) {
+    if (picked.length > 1 && left.every((w, i) => w.uid === right[i].uid)) {
       right = [...right.slice(1), right[0]];
     }
     setLeftOrder(left);
@@ -105,7 +101,6 @@ export default function MatchingPage() {
     setScreen("playing");
   }, [pool, pairCount]);
 
-  // Timer
   useEffect(() => {
     if (screen !== "playing") return;
     const h = setInterval(() => {
@@ -114,7 +109,6 @@ export default function MatchingPage() {
     return () => clearInterval(h);
   }, [screen, startTime]);
 
-  // Completion
   useEffect(() => {
     if (screen === "playing" && pairs.length > 0 && solvedIds.size === pairs.length) {
       const total = Math.floor((Date.now() - startTime) / 1000);
@@ -129,27 +123,25 @@ export default function MatchingPage() {
 
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const pickLeft = (id: number) => {
-    if (solvedIds.has(id)) return;
+  const pickLeft = (uid: string) => {
+    if (solvedIds.has(uid)) return;
     if (wrongFlash) return;
-    setSelectedLeft(id);
+    setSelectedLeft(uid);
   };
 
-  const pickRight = (id: number) => {
-    if (solvedIds.has(id)) return;
+  const pickRight = (uid: string) => {
+    if (solvedIds.has(uid)) return;
     if (wrongFlash) return;
     if (selectedLeft === null) return;
-    if (id === selectedLeft) {
-      // correct
-      recordAnswer(id, true, 0, updateSrs);
-      setSolvedIds((prev) => new Set(prev).add(id));
+    if (uid === selectedLeft) {
+      recordAnswer(uid, true, 0, updateSrs);
+      setSolvedIds((prev) => new Set(prev).add(uid));
       setSelectedLeft(null);
     } else {
-      // wrong
       recordAnswer(selectedLeft, false, 0, updateSrs);
       setErrors((e) => e + 1);
       const nonce = Date.now();
-      setWrongFlash({ leftId: selectedLeft, rightId: id, nonce });
+      setWrongFlash({ leftId: selectedLeft, rightId: uid, nonce });
       if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
       flashTimerRef.current = setTimeout(() => {
         setWrongFlash(null);
@@ -158,30 +150,27 @@ export default function MatchingPage() {
     }
   };
 
-  useEffect(
-    () => () => {
-      if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
-    },
-    [],
-  );
+  useEffect(() => () => {
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+  }, []);
 
   if (status === "loading") return <div className="text-slate-400">Yükleniyor…</div>;
-  if (status === "error")
-    return <ErrorState onRetry={() => setRetryKey((k) => k + 1)} />;
+  if (status === "error") return <ErrorState onRetry={() => setRetryKey((k) => k + 1)} />;
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <Link
-          href="/"
-          className="inline-flex items-center gap-1 text-sm text-slate-400 hover:text-emerald-400"
-        >
+        <Link href="/" className="inline-flex items-center gap-1 text-sm text-slate-400 hover:text-emerald-400">
           <ChevronLeft className="h-4 w-4" /> Ana sayfa
         </Link>
       </div>
 
       {screen === "setup" && (
         <Setup
+          category={category}
+          setCategory={setCategory}
+          customCategories={customCategories}
+          isCustomPool={isCustomPool}
           selectedSublists={selectedSublists}
           setSelectedSublists={setSelectedSublists}
           pairCount={pairCount}
@@ -225,6 +214,10 @@ export default function MatchingPage() {
 }
 
 function Setup(props: {
+  category: WordPoolCategory;
+  setCategory: (c: WordPoolCategory) => void;
+  customCategories: string[];
+  isCustomPool: boolean;
   selectedSublists: Set<number>;
   setSelectedSublists: (s: Set<number>) => void;
   pairCount: PairCount;
@@ -233,20 +226,13 @@ function Setup(props: {
   setOnlyUnknown: (b: boolean) => void;
   updateSrs: boolean;
   setUpdateSrs: (b: boolean) => void;
-  pool: Word[];
+  pool: PoolWord[];
   onStart: () => void;
 }) {
   const {
-    selectedSublists,
-    setSelectedSublists,
-    pairCount,
-    setPairCount,
-    onlyUnknown,
-    setOnlyUnknown,
-    updateSrs,
-    setUpdateSrs,
-    pool,
-    onStart,
+    category, setCategory, customCategories, isCustomPool,
+    selectedSublists, setSelectedSublists, pairCount, setPairCount,
+    onlyUnknown, setOnlyUnknown, updateSrs, setUpdateSrs, pool, onStart,
   } = props;
 
   const toggle = (n: number) => {
@@ -258,9 +244,7 @@ function Setup(props: {
   };
   const toggleAll = () =>
     setSelectedSublists(
-      selectedSublists.size === SUBLISTS.length
-        ? new Set([1])
-        : new Set(SUBLISTS),
+      selectedSublists.size === SUBLISTS.length ? new Set([1]) : new Set(SUBLISTS),
     );
 
   const canStart = pool.length >= pairCount;
@@ -269,54 +253,35 @@ function Setup(props: {
     <div className="space-y-6">
       <h1 className="font-heading text-2xl font-bold">Hızlı Eşleştirme</h1>
 
-      <Field label="Sublist (çoklu seçim)">
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={toggleAll}
-            className={pillCls(selectedSublists.size === SUBLISTS.length)}
-          >
-            Tümü
-          </button>
-          {SUBLISTS.map((n) => (
-            <button
-              key={n}
-              type="button"
-              aria-pressed={selectedSublists.has(n)}
-              onClick={() => toggle(n)}
-              className={pillCls(selectedSublists.has(n))}
-            >
-              Sublist {n}
+      <CategoryFilter value={category} onChange={setCategory} categories={customCategories} />
+
+      {!isCustomPool && (
+        <Field label="Sublist (çoklu seçim)">
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={toggleAll} className={pillCls(selectedSublists.size === SUBLISTS.length)}>
+              Tümü
             </button>
-          ))}
-        </div>
-      </Field>
+            {SUBLISTS.map((n) => (
+              <button key={n} type="button" aria-pressed={selectedSublists.has(n)} onClick={() => toggle(n)} className={pillCls(selectedSublists.has(n))}>
+                Sublist {n}
+              </button>
+            ))}
+          </div>
+        </Field>
+      )}
 
       <Field label="Grid boyutu">
         <div className="flex flex-wrap gap-2">
           {PAIR_CHOICES.map((n) => (
-            <button
-              key={n}
-              type="button"
-              aria-pressed={pairCount === n}
-              onClick={() => setPairCount(n)}
-              className={pillCls(pairCount === n)}
-            >
-              {n} çift
-              {n === 6 && " (kolay)"}
-              {n === 10 && " (zor)"}
+            <button key={n} type="button" aria-pressed={pairCount === n} onClick={() => setPairCount(n)} className={pillCls(pairCount === n)}>
+              {n} çift{n === 6 && " (kolay)"}{n === 10 && " (zor)"}
             </button>
           ))}
         </div>
       </Field>
 
       <label className="inline-flex items-center gap-2 text-sm text-slate-300 cursor-pointer select-none">
-        <input
-          type="checkbox"
-          checked={onlyUnknown}
-          onChange={(e) => setOnlyUnknown(e.target.checked)}
-          className="accent-emerald-500"
-        />
+        <input type="checkbox" checked={onlyUnknown} onChange={(e) => setOnlyUnknown(e.target.checked)} className="accent-emerald-500" />
         Sadece bilmediklerim
       </label>
       <label className="inline-flex items-center gap-2 text-sm text-slate-300 cursor-pointer select-none">
@@ -325,14 +290,11 @@ function Setup(props: {
       </label>
 
       <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-4 text-sm text-slate-400">
-        Havuz: <span className="text-slate-200 font-medium">{pool.length}</span>{" "}
-        kelime.
+        Havuz: <span className="text-slate-200 font-medium">{pool.length}</span> kelime.
       </div>
 
       {!canStart && (
-        <p className="text-red-400 text-sm">
-          Bu filtrelerle yeterli kelime yok, en az {pairCount} gerekli.
-        </p>
+        <p className="text-red-400 text-sm">Bu filtrelerle yeterli kelime yok, en az {pairCount} gerekli.</p>
       )}
 
       <button
@@ -347,13 +309,7 @@ function Setup(props: {
   );
 }
 
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-2">
       <div className="text-sm font-medium text-slate-300">{label}</div>
@@ -371,30 +327,21 @@ function pillCls(active: boolean): string {
 }
 
 function Playing(props: {
-  leftOrder: Word[];
-  rightOrder: Word[];
-  solvedIds: Set<number>;
-  selectedLeft: number | null;
+  leftOrder: PoolWord[];
+  rightOrder: PoolWord[];
+  solvedIds: Set<string>;
+  selectedLeft: string | null;
   wrongFlash: WrongFlash | null;
   errors: number;
   elapsed: number;
   solvedCount: number;
   totalPairs: number;
-  onPickLeft: (id: number) => void;
-  onPickRight: (id: number) => void;
+  onPickLeft: (uid: string) => void;
+  onPickRight: (uid: string) => void;
 }) {
   const {
-    leftOrder,
-    rightOrder,
-    solvedIds,
-    selectedLeft,
-    wrongFlash,
-    errors,
-    elapsed,
-    solvedCount,
-    totalPairs,
-    onPickLeft,
-    onPickRight,
+    leftOrder, rightOrder, solvedIds, selectedLeft, wrongFlash,
+    errors, elapsed, solvedCount, totalPairs, onPickLeft, onPickRight,
   } = props;
 
   return (
@@ -406,9 +353,7 @@ function Playing(props: {
         </div>
         <div className="inline-flex items-center gap-3">
           <span className="text-red-400">✗ {errors}</span>
-          <span className="text-slate-400">
-            {solvedCount} / {totalPairs}
-          </span>
+          <span className="text-slate-400">{solvedCount} / {totalPairs}</span>
         </div>
       </div>
 
@@ -416,28 +361,28 @@ function Playing(props: {
         <div className="space-y-2 sm:space-y-3">
           {leftOrder.map((w) => (
             <Cell
-              key={`L-${w.id}`}
-              id={w.id}
+              key={`L-${w.uid}`}
+              uid={w.uid}
               text={w.word}
               side="left"
-              solved={solvedIds.has(w.id)}
-              selected={selectedLeft === w.id}
-              wrong={wrongFlash?.leftId === w.id ? wrongFlash.nonce : null}
-              onClick={() => onPickLeft(w.id)}
+              solved={solvedIds.has(w.uid)}
+              selected={selectedLeft === w.uid}
+              wrong={wrongFlash?.leftId === w.uid ? wrongFlash.nonce : null}
+              onClick={() => onPickLeft(w.uid)}
             />
           ))}
         </div>
         <div className="space-y-2 sm:space-y-3">
           {rightOrder.map((w) => (
             <Cell
-              key={`R-${w.id}`}
-              id={w.id}
+              key={`R-${w.uid}`}
+              uid={w.uid}
               text={w.meaningTr}
               side="right"
-              solved={solvedIds.has(w.id)}
+              solved={solvedIds.has(w.uid)}
               selected={false}
-              wrong={wrongFlash?.rightId === w.id ? wrongFlash.nonce : null}
-              onClick={() => onPickRight(w.id)}
+              wrong={wrongFlash?.rightId === w.uid ? wrongFlash.nonce : null}
+              onClick={() => onPickRight(w.uid)}
             />
           ))}
         </div>
@@ -447,7 +392,7 @@ function Playing(props: {
 }
 
 function Cell({
-  id,
+  uid,
   text,
   side,
   solved,
@@ -455,7 +400,7 @@ function Cell({
   wrong,
   onClick,
 }: {
-  id: number;
+  uid: string;
   text: string;
   side: "left" | "right";
   solved: boolean;
@@ -463,8 +408,7 @@ function Cell({
   wrong: number | null;
   onClick: () => void;
 }) {
-  const base =
-    "w-full rounded-lg border px-3 py-3 sm:px-4 sm:py-4 min-h-[64px] flex items-center transition-colors";
+  const base = "w-full rounded-lg border px-3 py-3 sm:px-4 sm:py-4 min-h-[64px] flex items-center transition-colors";
   let color: string;
   if (solved) {
     color = "border-emerald-500/60 bg-emerald-500/15 text-emerald-200";
@@ -473,8 +417,7 @@ function Cell({
   } else if (selected) {
     color = "border-emerald-500/70 bg-emerald-500/10 text-emerald-200 shadow-[0_0_0_2px_rgba(16,185,129,0.3)]";
   } else {
-    color =
-      "border-slate-800 bg-slate-900 text-slate-200 hover:border-emerald-500/40 hover:bg-slate-800";
+    color = "border-slate-800 bg-slate-900 text-slate-200 hover:border-emerald-500/40 hover:bg-slate-800";
   }
 
   return (
@@ -484,9 +427,7 @@ function Cell({
       disabled={solved}
       aria-hidden={solved}
       aria-pressed={selected}
-      aria-label={
-        side === "left" ? `Kelime: ${text}` : `Anlam: ${text}`
-      }
+      aria-label={side === "left" ? `Kelime: ${text}` : `Anlam: ${text}`}
       tabIndex={solved ? -1 : 0}
       className={`${base} ${color}`}
       animate={{
@@ -496,21 +437,11 @@ function Cell({
         scale: solved ? [1, 1.05, 1] : 1,
       }}
       transition={
-        wrong !== null
-          ? { duration: 0.4 }
-          : solved
-            ? { duration: 0.3 }
-            : { duration: 0.15 }
+        wrong !== null ? { duration: 0.4 } : solved ? { duration: 0.3 } : { duration: 0.15 }
       }
-      key={wrong ?? `cell-${side}-${id}`}
+      key={wrong ?? `cell-${side}-${uid}`}
     >
-      <span
-        className={
-          side === "left"
-            ? "font-heading font-semibold text-base sm:text-lg"
-            : "text-xs sm:text-sm leading-snug"
-        }
-      >
+      <span className={side === "left" ? "font-heading font-semibold text-base sm:text-lg" : "text-xs sm:text-sm leading-snug"}>
         {text}
       </span>
     </motion.button>
@@ -553,57 +484,29 @@ function Result({
         <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 flex items-center gap-3">
           <Sparkles className="h-5 w-5 text-amber-300" />
           <div>
-            <div className="font-heading font-semibold text-amber-200">
-              Mükemmel!
-            </div>
-            <div className="text-xs text-amber-300/80">
-              Hatasız bitirdin — bonus +20 XP.
-            </div>
+            <div className="font-heading font-semibold text-amber-200">Mükemmel!</div>
+            <div className="text-xs text-amber-300/80">Hatasız bitirdin — bonus +20 XP.</div>
           </div>
         </div>
       )}
 
       <div className="flex flex-wrap gap-3">
-        <button
-          type="button"
-          onClick={onRestart}
-          className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 text-slate-950 px-5 py-2.5 font-medium hover:bg-emerald-400"
-        >
+        <button type="button" onClick={onRestart} className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 text-slate-950 px-5 py-2.5 font-medium hover:bg-emerald-400">
           <RotateCcw className="h-4 w-4" /> Tekrar Başla
         </button>
-        <button
-          type="button"
-          onClick={onBackToSetup}
-          className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 text-slate-200 px-5 py-2.5 font-medium hover:border-slate-600"
-        >
+        <button type="button" onClick={onBackToSetup} className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 text-slate-200 px-5 py-2.5 font-medium hover:border-slate-600">
           <Settings className="h-4 w-4" /> Ayarları Değiştir
         </button>
-        <Link
-          href="/"
-          className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 text-slate-200 px-5 py-2.5 font-medium hover:border-slate-600"
-        >
-          Dashboard'a Dön
+        <Link href="/" className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 text-slate-200 px-5 py-2.5 font-medium hover:border-slate-600">
+          Dashboard&apos;a Dön
         </Link>
       </div>
     </div>
   );
 }
 
-function StatCard({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone: "slate" | "emerald" | "red";
-}) {
-  const toneCls =
-    tone === "emerald"
-      ? "text-emerald-400"
-      : tone === "red"
-        ? "text-red-400"
-        : "text-slate-200";
+function StatCard({ label, value, tone }: { label: string; value: string; tone: "slate" | "emerald" | "red" }) {
+  const toneCls = tone === "emerald" ? "text-emerald-400" : tone === "red" ? "text-red-400" : "text-slate-200";
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 text-center">
       <div className={`font-heading text-2xl font-bold ${toneCls}`}>{value}</div>

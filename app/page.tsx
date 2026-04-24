@@ -1,14 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Layers, ListChecks, PenLine, Shuffle, BookOpen, Flame, Trophy, Award, Brain, Calendar, Headphones } from "lucide-react";
+import { Layers, ListChecks, PenLine, Shuffle, BookOpen, Flame, Trophy, Award, Brain, Calendar, Mic } from "lucide-react";
 import Link from "next/link";
 import Card from "@/components/ui/Card";
 import ProgressRing from "@/components/ui/ProgressRing";
 import Confetti from "@/components/ui/Confetti";
 import SublistSection from "@/components/games/SublistSection";
 import { getDefaultProgress, getProgress } from "@/lib/progress";
-import { isSupported as isSpeechSupported } from "@/lib/speech";
 import { getSublistProgress, getCelebratedSublists, addCelebratedSublist } from "@/lib/badges";
 import { getDueCards, getNewCards, getTomorrowDueCount, todayLocal } from "@/lib/srs";
 import { showToast } from "@/lib/toast";
@@ -21,6 +20,7 @@ const MODES = [
   { href: "/quiz", icon: ListChecks, title: "Çoktan Seçmeli", description: "4 şıktan doğru anlamı seç." },
   { href: "/fill-blank", icon: PenLine, title: "Boşluk Doldurma", description: "Cümledeki eksik kelimeyi bul." },
   { href: "/matching", icon: Shuffle, title: "Eşleştirme", description: "İngilizce–Türkçe çiftleri hızla eşle." },
+  { href: "/stories", icon: Mic, title: "Hikayeler", description: "Dinle, metni takip et — AWL kelimeleri vurgulanır." },
 ];
 
 const SUBLISTS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
@@ -38,7 +38,6 @@ export default function HomePage() {
   const [words, setWords] = useState<Word[]>([]);
   const [showConfetti, setShowConfetti] = useState(false);
   const [hintDismissed, setHintDismissed] = useState(true);
-  const [speechSupported, setSpeechSupported] = useState<boolean | null>(null);
 
   const checkCompletions = useCallback((p: Progress, w: Word[]) => {
     if (w.length === 0) return;
@@ -56,7 +55,6 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    setSpeechSupported(isSpeechSupported());
     const p = getProgress();
     setProgress(p);
     const dismissed = localStorage.getItem("awl-hint-dismissed") === "true";
@@ -94,7 +92,10 @@ export default function HomePage() {
 
   const today = todayLocal();
   const dueCount = useMemo(() => getDueCards(progress.srs, today).length, [progress.srs, today]);
-  const newSrsCount = useMemo(() => getNewCards(words, progress.srs, 10).length, [words, progress.srs, today]);
+  const newSrsCount = useMemo(
+    () => getNewCards(words.map((w) => ({ uid: String(w.id), sublist: w.sublist })), progress.srs, 10).length,
+    [words, progress.srs, today],
+  );
   const tomorrowCount = useMemo(() => getTomorrowDueCount(progress.srs, today), [progress.srs, today]);
 
   return (
@@ -190,25 +191,6 @@ export default function HomePage() {
         {MODES.map((m) => (
           <Card key={m.href} {...m} />
         ))}
-        {speechSupported === null ? null : speechSupported ? (
-          <Card
-            href="/listening"
-            icon={Headphones}
-            title="Dinleme Modu"
-            description="Kelimeyi dinle, doğru anlamı yaz."
-          />
-        ) : (
-          <div
-            title="Tarayıcın desteklemiyor"
-            className="block rounded-xl border border-slate-800 bg-slate-900/30 p-6 opacity-50 cursor-not-allowed select-none"
-          >
-            <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-lg bg-slate-700/30">
-              <Headphones className="h-5 w-5 text-slate-500" />
-            </div>
-            <h3 className="font-heading text-lg font-semibold text-slate-400 mb-1">Dinleme Modu</h3>
-            <p className="text-sm text-slate-500">Tarayıcın desteklemiyor.</p>
-          </div>
-        )}
       </section>
 
       <section>
