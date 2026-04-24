@@ -66,7 +66,7 @@ export default function HomePage() {
         setWords(w);
         checkCompletions(p, w);
       })
-      .catch(() => {});
+      .catch(() => { });
   }, [checkCompletions]);
 
   useEffect(() => {
@@ -113,7 +113,7 @@ export default function HomePage() {
               <Flame className="h-4 w-4" /> {progress.streak.current} günlük seri
             </p>
           )}
-          <p className="text-slate-400 text-sm">570 AWL kelimesini oyunlarla çalış.</p>
+          <p className="text-slate-400 text-sm">570 AWL (Academic Word List) kelimesini oyunlarla çalış.</p>
         </div>
         <div className="shrink-0">
           <ProgressRing value={known} max={TOTAL_WORDS} />
